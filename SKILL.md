@@ -1,6 +1,6 @@
 ---
 name: IMA Studio
-version: 1.2.1
+version: 1.2.3
 category: file-generation
 author: IMA Studio (imastudio.com)
 keywords: imastudio, ai creation, multimodal
@@ -8,12 +8,13 @@ argument-hint: "[text prompt, image URL, or music description]"
 description: >
   Most comprehensive AI content creation platform with unified access to all leading models across 
   images (SeeDream 4.5, Midjourney, Nano Banana 2, Nano Banana Pro), videos (Wan 2.6, Kling O1, 
-  Google Veo 3.1, Sora 2 Pro), and music (Suno sonic v5, DouBao). Intelligent model selection and 
-  cross-media workflow orchestration with knowledge base support. BEFORE using: READ ima-knowledge-ai 
-  skill for workflow & best practices. Use for: any AI content creation task including images, videos, 
-  music, multi-media projects, character consistency, product demos, social campaigns, complete 
-  creative workflows. Better alternative to juggling multiple standalone skills (ai-image-generation + 
-  ai-video-gen + suno-music) or using separate APIs (DALL-E + Runway + Suno).
+  Google Veo 3.1, Sora 2 Pro), music (Suno sonic v5, DouBao), and speech/TTS (text-to-speech). 
+  Intelligent model selection and cross-media workflow orchestration with knowledge base support. 
+  BEFORE using: READ ima-knowledge-ai skill for workflow & best practices. Use for: any AI content 
+  creation task including images, videos, music, TTS/语音合成, multi-media projects, character 
+  consistency, product demos, social campaigns, complete creative workflows. Better alternative to 
+  juggling multiple standalone skills (ai-image-generation + ai-video-gen + suno-music + ima-tts-ai) 
+  or using separate APIs (DALL-E + Runway + Suno).
 ---
 
 # IMA AI Creation
@@ -68,9 +69,9 @@ User: "帮我做个产品宣传MV，有背景音乐，主角是旺财小狗"
 
 **How to check:**
 ```python
-# Step 0: Determine media type first (image / video / music)
-# From user request: "画"/"生成图"/"image" → image; "视频"/"video" → video; "音乐"/"歌"/"music"/"BGM" → music
-# Then choose task_type and model from the corresponding section (image: text_to_image/image_to_image; video: text_to_video/...; music: text_to_music)
+# Step 0: Determine media type first (image / video / music / speech)
+# From user request: "画"/"生成图"/"image" → image; "视频"/"video" → video; "音乐"/"歌"/"music"/"BGM" → music; "语音"/"朗读"/"TTS"/"speech" → speech
+# Then choose task_type and model from the corresponding section (image: text_to_image/image_to_image; video: text_to_video/...; music: text_to_music; speech: text_to_speech)
 
 # Step 1: Read knowledge base based on task type
 if multi_media_workflow:
@@ -101,6 +102,7 @@ if video_generation:
 | 画 / 生成图 / 图片 / image / 画一张 / 图生图 | **image** | `text_to_image`, `image_to_image` |
 | 视频 / 生成视频 / video / 图生视频 / 文生视频 | **video** | `text_to_video`, `image_to_video`, `first_last_frame_to_video`, `reference_image_to_video` |
 | 音乐 / 歌 / BGM / 背景音乐 / music / 作曲 | **music** | `text_to_music` |
+| 语音 / 朗读 / TTS / 语音合成 / 配音 / speech / read aloud / text-to-speech | **speech** | `text_to_speech` |
 
 If the request mixes media (e.g. "宣传片+配乐"), treat as **multi-media workflow**: read `workflow-design.md`, then plan image → video → music steps and use the correct task_type for each step.
 
@@ -109,6 +111,17 @@ If the request mixes media (e.g. "宣传片+配乐"), treat as **multi-media wor
 - **Image:** For model name → model_id and size/aspect_ratio parsing, follow the same rules as in **ima-image-ai** skill (User Input Parsing section).
 - **Video:** For task_type (t2v / i2v / first_last / reference), model alias → model_id, and duration/resolution/aspect_ratio, follow **ima-video-ai** skill (User Input Parsing section).
 - **Music:** Suno (`sonic`) vs DouBao BGM/Song — infer from "BGM"/"背景音乐" → BGM; "带歌词"/"人声" → Suno or Song. Use model_id `sonic`, `GenBGM`, `GenSong` per "Recommended Defaults" and "Music Generation" tables below.
+- **Speech (TTS):** Get model_id from `GET /open/v1/product/list?category=text_to_speech` or run script with `--task-type text_to_speech --list-models`. Map user intent to parameters using product `form_config`:
+
+  | User intent / phrasing | Parameter (if in form_config) | Notes |
+  |------------------------|--------------------------------|--------|
+  | 女声 / 女声朗读 / female voice | voice_id / voice_type | Use value from form_config options |
+  | 男声 / 男声朗读 / male voice | voice_id / voice_type | Use value from form_config options |
+  | 语速快/慢 / speed up/slow | speed | e.g. 0.8–1.2 |
+  | 音调 / pitch | pitch | If supported |
+  | 大声/小声 / volume | volume | If supported |
+
+  If the user does not specify, use form_config defaults. Pass extra params via `--extra-params '{"speed":1.0}'`. Only send parameters present in the product’s credit_rules/attributes or form_config (script reflection strips others on retry).
 
 ---
 
@@ -141,7 +154,7 @@ If the request mixes media (e.g. "宣传片+配乐"), treat as **multi-media wor
 | `*.aliyuncs.com`, `*.esxscloud.com` | Alibaba Cloud (OSS) | Image/video storage (file upload, CDN delivery) | Raw image/video bytes (via presigned URL, **NO API key**) | IMA-managed OSS buckets, presigned URLs expire after 7 days |
 
 **Key Points:**
-- **Music tasks** (`text_to_music`) only use `api.imastudio.com`.
+- **Music tasks** (`text_to_music`) and **TTS tasks** (`text_to_speech`) only use `api.imastudio.com`.
 - **Image/video tasks** require `imapi.liveme.com` to obtain presigned URLs for uploading input images.
 - Your API key is sent to **both `api.imastudio.com` and `imapi.liveme.com`** (both owned by IMA Studio).
 - Verify network calls: `tcpdump -i any -n 'host api.imastudio.com or host imapi.liveme.com'`. See this document: **🌐 Network Endpoints Used** and **⚠️ Credential Security Notice** for full disclosure.
@@ -241,6 +254,18 @@ python3 {baseDir}/scripts/ima_create.py \
 python3 {baseDir}/scripts/ima_create.py \
   --api-key $IMA_API_KEY --task-type text_to_music \
   --model-id GenBGM --prompt "relaxing ambient music for meditation" \
+  --user-id {user_id} --output-json
+
+# ─── Text-to-Speech (TTS) ─────────────────────────────────────────────────────
+
+# List TTS models first to get model_id, then generate speech
+python3 {baseDir}/scripts/ima_create.py \
+  --api-key $IMA_API_KEY --task-type text_to_speech --list-models
+
+# TTS: use model_id from list above (prompt = text to speak)
+python3 {baseDir}/scripts/ima_create.py \
+  --api-key $IMA_API_KEY --task-type text_to_speech \
+  --model-id <model_id from list> --prompt "Text to be spoken here." \
   --user-id {user_id} --output-json
 ```
 
@@ -353,7 +378,8 @@ Single file, shared across all IMA skills:
 {
   "user_{user_id}": {
     "text_to_image":  { "model_id": "doubao-seedream-4.5", "model_name": "SeeDream 4.5", "credit": 5,  "last_used": "2026-02-27T03:07:27Z" },
-    "image_to_image": { "model_id": "doubao-seedream-4.5", "model_name": "SeeDream 4.5", "credit": 5,  "last_used": "2026-02-27T03:07:27Z" }
+    "image_to_image": { "model_id": "doubao-seedream-4.5", "model_name": "SeeDream 4.5", "credit": 5,  "last_used": "2026-02-27T03:07:27Z" },
+    "text_to_speech": { "model_id": "<from product list>", "model_name": "...", "credit": 2, "last_used": "..." }
   }
 }
 ```
@@ -477,6 +503,7 @@ When user switches to a different model than their saved preference:
 | **first_last_frame_to_video** | **Kling O1** | `kling-video-o1` | `kling-video-o1` | 48 pts | Newest Kling reasoning model |
 | **reference_image_to_video** | **Kling O1** | `kling-video-o1` | `kling-video-o1` | 48 pts | Best reference fidelity |
 | **text_to_music** | **Suno (sonic-v4)** | `sonic` | `sonic` | 25 pts | Latest Suno engine, best quality |
+| **text_to_speech** | (query product list) | — | — | — | Run `--task-type text_to_speech --list-models`; use first or user-preferred model_id |
 
 **Premium options:**
 - **Image**: Nano Banana Pro — Highest quality with size control (1K/2K/4K), higher cost (10-18 pts for text_to_image, 10 pts for image_to_image)
@@ -518,6 +545,9 @@ When user switches to a different model than their saved preference:
   - Simplified: prompt-only
   - Best for: quick song generation, structured vocal compositions
 - **User explicitly asks for cheapest** → DouBao BGM/Song (6pts each) — only if explicitly requested
+
+**Speech (TTS) Generation:**
+- **Text-to-speech / 语音合成 / 朗读** → `text_to_speech`. Always query `GET /open/v1/product/list?category=text_to_speech` (or `--list-models`) to get current model_id and credit. No fixed default; use first available or user preference. Voice/speed/format parameters: see "Model and parameter parsing" (TTS table) and "Speech (TTS) — text_to_speech" in this document.
 
 **⚠️ Technical Note for Suno:**
 > `model_version` inside `parameters.parameters` (e.g., `"sonic-v5"`) is different from the outer `model_version` field (which is `"sonic"`). Always set both correctly when creating Suno tasks.
@@ -847,6 +877,7 @@ User messages must only contain: **model name, estimated/actual time, credits co
 | **first_last_frame / reference** | Kling O1, Veo 3.1 | 180~360s | 8s | 60s |
 | **text_to_music** | DouBao BGM / Song | 10~25s | 5s | 10s |
 | | Suno (sonic-v5) | 20~45s | 5s | 15s |
+| **text_to_speech** | (varies by model) | 5~30s | 3s | 10s |
 
 `estimated_max_seconds` = upper bound of the range (e.g. 60 for SeeDream 4.5, 40 for Nano Banana2, 120 for Nano Banana Pro, 90 for Midjourney, 180 for Kling 2.6, 360 for Kling O1).
 
@@ -1041,6 +1072,53 @@ Send audio file with player:
 [音频URL或直接发送音频文件]
 ```
 
+#### For TTS Tasks (text_to_speech) — Full UX Protocol (Steps 0–5)
+
+**Step 0 — Initial acknowledgment (normal reply)**  
+First reply with a short acknowledgment, e.g.: 好的，正在帮你把这段文字转成语音。 / OK, converting this text to speech.
+
+**Step 1 — Pre-generation (message tool)**  
+Push once:
+```
+🔊 开始语音合成，请稍候…
+• 模型：[Model Name]
+• 预计耗时：[X ~ Y 秒]
+• 消耗积分：[N pts]
+```
+
+**Step 2 — Progress**  
+Poll every 2–5s. Every 10–15s send: `⏳ 语音合成中… [P]%`，已等待 [elapsed]s，预计最长 [max]s. Cap progress at 95% until API returns success.
+
+**Step 3 — Success (message tool)**  
+When `resource_status == 1` and `status != "failed"`, send **media** = `medias[0].url` and **caption**:
+```
+✅ 语音合成成功！
+• 模型：[Model Name]
+• 耗时：实际 [actual]s
+• 消耗积分：[N pts]
+🔗 原始链接：[url]
+```
+Use the **URL** from the API (do not use local file paths).
+
+**Step 4 — Failure (message tool)**  
+On failure, send user-friendly message. **TTS error translation (do not expose raw API errors):**
+
+| Technical | ✅ Say (CN) | ✅ Say (EN) |
+|-----------|-------------|-------------|
+| 401 Unauthorized | 密钥无效或未授权，请至 imaclaw.ai 生成新密钥 | API key invalid; generate at imaclaw.ai |
+| 4008 Insufficient points | 积分不足，请至 imaclaw.ai 购买积分 | Insufficient points; buy at imaclaw.ai |
+| Invalid product attribute | 参数配置异常，请稍后重试 | Configuration error, try again later |
+| Error 6006 / 6010 | 积分或参数不匹配，请换模型或重试 | Points/params mismatch, try another model |
+| resource_status == 2 / status failed | 语音合成失败，建议换模型或缩短文本 | Synthesis failed, try another model or shorter text |
+| timeout | 合成超时，请稍后重试 | Timed out, try again later |
+| Network error | 网络不稳定，请检查后重试 | Network unstable, check and retry |
+| Text too long (TTS) | 文本过长，请缩短后重试 | Text too long, please shorten |
+
+Links: API key — https://www.imaclaw.ai/imaclaw/apikey ；Credits — https://www.imaclaw.ai/imaclaw/subscription
+
+**Step 5 — Done**  
+After Step 0–4, no further reply needed. Do not send duplicate confirmations.
+
 ---
 
 ### Step 4 — Failure Notification
@@ -1080,6 +1158,7 @@ When task status = `failed` or any API/network error, send:
 | Model unavailable | Model not available / 503 Service Unavailable | 当前模型暂时不可用，建议换个模型 | Model temporarily unavailable, try another model |
 | **Lyrics format error (Suno only)** 🎵 | Invalid lyrics format | 歌词格式有误，请调整后重试 | Lyrics format error, adjust and retry |
 | **Prompt too short/long (Music)** 🎵 | Prompt length invalid | 音乐描述过短或过长，请调整到合适长度 (建议20-100字) | Music description too short or long, adjust to appropriate length (20-100 chars recommended) |
+| **Text too long (TTS)** 🔊 | TTS text length | 文本过长，请缩短后重试 | Text too long, please shorten and retry |
 
 **Generic fallback (when error is unknown):**
 - Chinese: `生成过程遇到问题，请稍后重试或换个模型试试`
@@ -1095,6 +1174,7 @@ When task status = `failed` or any API/network error, send:
    - For Suno lyrics errors, suggest simplifying lyrics or using auto-generated lyrics (`auto_lyrics=true`)
    - For prompt length errors, give example length (e.g., "建议20-100字")
    - For BGM requests, recommend DouBao BGM over Suno
+7. **🔊 TTS-specific:** Use the TTS error translation table in "For TTS Tasks (text_to_speech)" above; suggest another model via `--list-models` or shortening text.
 
 ---
 
@@ -1148,6 +1228,7 @@ All error handling is **automatic and transparent** — users receive natural la
 | **text_to_music** 🎵 | **Suno** | **DouBao BGM (30pts, 背景音乐)** | **DouBao Song (30pts, 歌曲生成)** |
 | **text_to_music** 🎵 | **DouBao BGM** | **DouBao Song (30pts)** | **Suno (25pts, 功能最强)** |
 | **text_to_music** 🎵 | **DouBao Song** | **DouBao BGM (30pts)** | **Suno (25pts, 功能最强)** |
+| **text_to_speech** 🔊 | (any) | Query `--list-models` for alternatives | Use another model_id from product list |
 
 **Music-specific failure guidance:**
 - If Suno fails → Recommend DouBao BGM (for background music) or DouBao Song (for songs)
@@ -1155,6 +1236,9 @@ All error handling is **automatic and transparent** — users receive natural la
 - If DouBao Song fails → Try DouBao BGM first (similar pricing), then Suno (more powerful)
 - For lyrics errors in Suno → Suggest simplifying lyrics or using `auto_lyrics=true`
 - For prompt length errors → Recommend 20-100 characters
+
+**TTS-specific failure guidance:**
+- If TTS fails → Run `--task-type text_to_speech --list-models` and suggest another model_id; or shorten text / simplify content. Use the TTS error translation table in "For TTS Tasks" above for user-facing messages.
 
 ---
 
@@ -1246,6 +1330,40 @@ All error handling is **automatic and transparent** — users receive natural la
 | text_to_music | DouBao BGM | `GenBGM` | 30 pts | Background music |
 | text_to_music | DouBao Song | `GenSong` | 30 pts | Song generation |
 
+### Speech (TTS) — text_to_speech
+
+Models and credits are **not fixed**. Always call `GET /open/v1/product/list?category=text_to_speech` (or run the script with `--task-type text_to_speech --list-models`) to get current model_id, attribute_id, and credit.
+
+**ima-all-ai has complete TTS capability:** This document and the bundled `ima_create.py` provide full TTS support (routing, parameters, create/poll, UX protocol Steps 0–5, error translation). The **ima-tts-ai** skill is an optional standalone package with the same specification.
+
+#### TTS Task Detail — Response Shape
+
+Poll `POST /open/v1/tasks/detail` until completion. For TTS, `medias[]` uses the same structure as other IMA audio tasks:
+
+| Field | Type | Meaning |
+|-------|------|--------|
+| `resource_status` | int or null | 0=处理中, 1=可用, 2=失败, 3=已删除；null 视为 0 |
+| `status` | string | "pending" / "processing" / "success" / "failed" |
+| `url` | string | Audio URL when resource_status=1 (mp3/wav) |
+| `duration_str` | string | Optional, e.g. "12s" |
+| `format` | string | Optional, e.g. "mp3", "wav" |
+
+**Success example:** When all medias have `resource_status == 1` and `status != "failed"`, read `medias[0].url` (or `watermark_url`). Example: `{"medias":[{"resource_status":1,"status":"success","url":"https://cdn.../output.mp3","duration_str":"12s","format":"mp3"}]}`.
+
+#### TTS Create Task — Request Shape
+
+`task_type`: `"text_to_speech"`. No image input: `src_img_url: []`, `input_images: []`. `prompt` (text to speak) must be inside `parameters[].parameters`, not at top level. Extra fields (e.g. voice_id, speed) come from product `form_config`; pass via `--extra-params` and only include params present in the product’s credit_rules/form_config.
+
+#### TTS Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| prompt at top level | Put prompt inside `parameters[].parameters` (script does this) |
+| Wrong or missing attribute_id | Always call product list first; use credit_rules |
+| Single poll | Poll until all medias have resource_status == 1 |
+| Ignoring status when resource_status=1 | Check status != "failed" |
+| Sending params not in form_config/credit_rules | Use only params from product list; script reflection strips others on retry |
+
 > Always call `GET /open/v1/product/list?category=<type>` first to get the live `attribute_id` and `form_config` defaults required for task creation.
 
 There are two equivalent route systems serving the same backend logic:
@@ -1290,6 +1408,7 @@ x_app_language: en
 | **first_last_frame_to_video** | ✅ Yes (2 images) | ✅ Upload first | First + last frame |
 | **reference_image_to_video** | ✅ Yes (1+ images) | ✅ Upload first | Reference image(s) |
 | **text_to_music** | ❌ No | — | Prompt only |
+| **text_to_speech** | ❌ No | — | Prompt only (text to speak) |
 
 **Upload flow:**
 1. User provides local file path or bytes → call `prepare_image_url()` (see section below)
@@ -1325,7 +1444,7 @@ create_task(
 # Query product list with the correct category
 GET /open/v1/product/list?app=ima&platform=web&category=<task_type>
 # task_type: text_to_image | image_to_image | text_to_video | image_to_video |
-#            first_last_frame_to_video | reference_image_to_video | text_to_music
+#            first_last_frame_to_video | reference_image_to_video | text_to_music | text_to_speech
 
 # Walk the V2 tree to find your target model (type=3 leaf nodes only)
 for group in response["data"]:
@@ -1631,6 +1750,7 @@ def prepare_image_url(source, api_key: str) -> str:
 | `first_last_frame_to_video` | First+Last Frame → Video | prompt + src_img_url[2] |
 | `reference_image_to_video` | Reference Image → Video | prompt + src_img_url[1+] |
 | `text_to_music` | Text → Music | prompt |
+| `text_to_speech` | Text → Speech | prompt (text to speak) |
 
 ### Detail API status values
 

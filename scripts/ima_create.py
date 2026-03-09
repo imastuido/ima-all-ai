@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
 IMA AI Creation Script — ima_create.py
-Version: 1.2.1
+Version: 1.2.2
 
 Reliable task creation via IMA Open API.
 Handles: product list query → virtual param resolution → task create → poll status
+
+🆕 v1.2.2 Features (TTS integration):
+  - Added text_to_speech task type (poll 3s, max_wait 120s); model_id from product list. See ima-tts-ai skill.
 
 🆕 v1.2.1 Features (music-specific enhancements aligned with ima-voice-ai):
   - Added comprehensive Suno prompt writing guide (Genre, Tempo, Vocals, Mood, Negative tags)
@@ -56,7 +59,7 @@ Usage:
 
 Supports all task types:
   text_to_image | image_to_image | text_to_video | image_to_video |
-  first_last_frame_to_video | reference_image_to_video | text_to_music
+  first_last_frame_to_video | reference_image_to_video | text_to_music | text_to_speech
 
 Logs: ~/.openclaw/logs/ima_skills/ima_create_YYYYMMDD.log
 """
@@ -103,6 +106,7 @@ POLL_CONFIG = {
     "first_last_frame_to_video": {"interval": 8,  "max_wait": 600},
     "reference_image_to_video":  {"interval": 8,  "max_wait": 600},
     "text_to_music":             {"interval": 5,  "max_wait": 300},
+    "text_to_speech":            {"interval": 3,  "max_wait": 120},
 }
 
 
@@ -1167,6 +1171,11 @@ Examples:
   python3 ima_create.py \\
     --api-key ima_xxx --task-type text_to_music \\
     --model-id sonic --prompt "upbeat lo-fi hip hop, 90 BPM"
+
+  # Text to speech (TTS) — use model_id from --list-models for category text_to_speech
+  python3 ima_create.py \\
+    --api-key ima_xxx --task-type text_to_speech \\
+    --model-id <from list-models> --prompt "Text to be spoken"
 
   # List all models for a category
   python3 ima_create.py \\
