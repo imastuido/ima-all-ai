@@ -3,7 +3,7 @@ name: IMA Studio
 version: 1.2.3
 category: file-generation
 author: IMA Studio (imastudio.com)
-keywords: imastudio, ai creation, multimodal
+keywords: imastudio, ai creation, multimodal, 图像生成, 视频生成, 音乐生成, 语音合成, AI创作, 文生图, 图生视频, IMA, SeeDream, Midjourney, Nano Banana, Wan, Kling, Veo, Sora, Suno, DouBao
 argument-hint: "[text prompt, image URL, or music description]"
 description: >
   Most comprehensive AI content creation platform with unified access to all leading models across 

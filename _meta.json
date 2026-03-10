@@ -1,6 +1,8 @@
 {
   "ownerid": "kn70cjr952qdec1nx70zs6wefn7ynq2t",
   "slug": "ima-all-ai",
+  "name": "IMA Studio",
+  "description": "IMA 一站式 AI 创作：SeeDream/Midjourney/Nano Banana 图，Wan/Kling/Veo/Sora 视频，Suno/DouBao 音乐，TTS。Unified image, video, music, TTS.",
   "version": "1.2.3",
   "publishedAt": 1741277713337
 }
