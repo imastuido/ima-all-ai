@@ -1,74 +1,30 @@
 #!/usr/bin/env python3
 """
 IMA AI Creation Script — ima_create.py
-Version: 1.2.2
+Version: 1.2.3
 
 Reliable task creation via IMA Open API.
-Handles: product list query → virtual param resolution → task create → poll status
+Flow: product list → virtual param resolution → task create → poll status.
 
-🆕 v1.2.2 Features (TTS integration):
-  - Added text_to_speech task type (poll 3s, max_wait 120s); model_id from product list. See ima-tts-ai skill.
-
-🆕 v1.2.1 Features (music-specific enhancements aligned with ima-voice-ai):
-  - Added comprehensive Suno prompt writing guide (Genre, Tempo, Vocals, Mood, Negative tags)
-  - Added music-specific error translations (Lyrics format, Prompt length)
-  - Enhanced music use case guide: 4 detailed scenarios vs 2 basic
-  - Added dedicated music failure fallback strategies (Suno ↔ DouBao BGM ↔ DouBao Song)
-  - Added technical notes for Suno model_version handling
-  - Documented all Suno parameters: custom_mode, make_instrumental, auto_lyrics, tags, negative_tags
-
-🆕 v1.2.0 Features (aligned with ima-image-ai v1.3):
-  - Added Step 0 initial acknowledgment reply (fixes message ordering in group chats)
-  - Enhanced UX protocol to 6-step flow (0: Ack → 1: Pre-Gen → 2: Progress → 3: Success → 4: Failure → 5: Done)
-  - Added Midjourney timing estimates (40~90s, poll 8s, progress 25s)
-  - Enhanced recommended model table with version_id and budget/premium/artistic classifications
-  - Added detailed "Selection guide by use case" with 6+ scenarios
-  - Enhanced aspect_ratio documentation with 🆕 MAJOR UPDATE callout and user guidance templates
-  - Added Step 5 explicit task completion step
-
-🆕 v1.1.0 Features:
-  - Added user preference memory system (~/.openclaw/memory/ima_prefs.json)
-  - Enhanced UX protocol with 4-step generation flow
-  - Detailed progress updates with time estimates
-  - Video-specific handling: inline player + text link
-  - Preference-aware model selection with user habit tracking
-
-🆕 v1.0.9 Features:
-  - Updated documentation to reflect aspect_ratio support for image models
-  - Added Midjourney to production image models list
-  - Clarified aspect_ratio support: SeeDream 4.5 (8 ratios), Nano Banana Pro/2 (5 ratios)
-
-🆕 v1.0.8 Features:
-  - Enhanced error handling for 401 (Unauthorized) and 4008 (Insufficient points)
-  - Clickable links to API key generation and credit purchase pages
-  - Pixverse model parameter auto-inference for V5.5/V5/V4
-
-🆕 v1.0.5 Features:
-  - Automatic error recovery (Reflection mechanism)
-  - Smart parameter matching with case-insensitive support
-  - 500 error handling with parameter degradation
-  - 6009/6010 error auto-correction
-  - Up to 3 automatic retries with detailed failure suggestions
+- --input-images: accepts HTTPS URLs or local file paths (local files auto-uploaded to IMA CDN).
+- Task types: text_to_image | image_to_image | text_to_video | image_to_video |
+  first_last_frame_to_video | reference_image_to_video | text_to_music | text_to_speech
 
 Usage:
-  python3 ima_create.py \
-    --api-key  ima_xxx \
-    --task-type text_to_image \
-    --model-id  doubao-seedream-4.5 \
-    --prompt   "a cute puppy running on grass"
-
-Supports all task types:
-  text_to_image | image_to_image | text_to_video | image_to_video |
-  first_last_frame_to_video | reference_image_to_video | text_to_music | text_to_speech
+  python3 ima_create.py --api-key ima_xxx --task-type text_to_image \\
+    --model-id doubao-seedream-4.5 --prompt "a cute puppy"
 
 Logs: ~/.openclaw/logs/ima_skills/ima_create_YYYYMMDD.log
 """
 
 import argparse
+import hashlib
 import json
+import mimetypes
 import os
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 
 try:
@@ -97,6 +53,11 @@ except ImportError:
 DEFAULT_BASE_URL = "https://api.imastudio.com"
 PREFS_PATH       = os.path.expanduser("~/.openclaw/memory/ima_prefs.json")
 
+# Upload service (IMA image/video CDN upload). See SKILL.md "Network Endpoints Used".
+IMA_IM_BASE = "https://imapi.liveme.com"
+APP_ID      = "webAgent"
+APP_KEY     = "32jdskjdk320eew"   # public shared client-id, not a secret
+
 # Poll interval (seconds) and max wait (seconds) per task type
 POLL_CONFIG = {
     "text_to_image":             {"interval": 5,  "max_wait": 300},
@@ -119,6 +80,71 @@ def make_headers(api_key: str, language: str = "en") -> dict:
         "x-app-source":   "ima_skills",
         "x_app_language": language,
     }
+
+
+# ─── Image upload helpers ─────────────────────────────────────────────────────
+
+def _gen_sign() -> tuple:
+    """Generate per-request (sign, timestamp, nonce) for upload token."""
+    nonce = uuid.uuid4().hex[:21]
+    ts    = str(int(time.time()))
+    raw   = f"{APP_ID}|{APP_KEY}|{ts}|{nonce}"
+    sign  = hashlib.sha1(raw.encode()).hexdigest().upper()
+    return sign, ts, nonce
+
+
+def _get_upload_token(api_key: str, suffix: str, content_type: str) -> dict:
+    """Step 1: Get presigned upload URL from IMA upload service."""
+    sign, ts, nonce = _gen_sign()
+    r = requests.get(
+        f"{IMA_IM_BASE}/api/rest/oss/getuploadtoken",
+        params={
+            "appUid":       api_key,
+            "appId":        APP_ID,
+            "appKey":       APP_KEY,
+            "cmimToken":    api_key,
+            "sign":         sign,
+            "timestamp":    ts,
+            "nonce":        nonce,
+            "fService":     "privite",
+            "fType":        "picture",
+            "fSuffix":      suffix,
+            "fContentType": content_type,
+        },
+        timeout=15,
+    )
+    r.raise_for_status()
+    return r.json()["data"]
+
+
+def prepare_image_url(source: str, api_key: str) -> str:
+    """Upload a local image file to IMA CDN and return its public URL.
+
+    If `source` is already an HTTPS URL it is returned as-is.
+    Otherwise the file is uploaded via the two-step presigned URL flow and
+    the resulting CDN URL (fdl) is returned.
+    """
+    if source.startswith("https://") or source.startswith("http://"):
+        return source
+
+    if not os.path.isfile(source):
+        raise FileNotFoundError(f"Input image not found: {source}")
+
+    content_type = mimetypes.guess_type(source)[0] or "image/jpeg"
+    suffix = source.rsplit(".", 1)[-1].lower() if "." in source else "jpeg"
+
+    logger.info(f"Uploading local image: {source} ({content_type})")
+    token_data = _get_upload_token(api_key, suffix, content_type)
+    ful = token_data["ful"]
+    fdl = token_data["fdl"]
+
+    with open(source, "rb") as f:
+        image_bytes = f.read()
+    resp = requests.put(ful, data=image_bytes, headers={"Content-Type": content_type}, timeout=60)
+    resp.raise_for_status()
+
+    logger.info(f"Upload complete: {fdl}")
+    return fdl
 
 
 # ─── Step 1: Product List ─────────────────────────────────────────────────────
@@ -1195,7 +1221,8 @@ Examples:
     p.add_argument("--prompt",
                    help="Generation prompt (required unless --list-models)")
     p.add_argument("--input-images", nargs="*", default=[],
-                   help="Input image URLs (for image_to_image, image_to_video, etc.)")
+                   help="Input image URLs or local file paths (for image_to_image, image_to_video, etc.). "
+                        "Local files are automatically uploaded using the API key.")
     p.add_argument("--size",
                    help="Override size parameter (e.g. 4k, 2k, 1024x1024)")
     p.add_argument("--extra-params",
@@ -1298,6 +1325,23 @@ def main():
             print(f"❌ Invalid --extra-params JSON: {e}", file=sys.stderr)
             sys.exit(1)
 
+    # ── 3b. Resolve local image paths → CDN URLs ─────────────────────────────
+    raw_inputs = args.input_images or []
+    resolved_inputs: list[str] = []
+    for src in raw_inputs:
+        if src.startswith("https://") or src.startswith("http://"):
+            resolved_inputs.append(src)
+        else:
+            print(f"📤 Uploading local image: {os.path.basename(src)}", flush=True)
+            try:
+                cdn_url = prepare_image_url(src, apikey)
+                resolved_inputs.append(cdn_url)
+                print(f"   ✅ Uploaded → {cdn_url}", flush=True)
+            except Exception as e:
+                logger.error(f"Image upload failed: {src} — {e}")
+                print(f"❌ Failed to upload image {src}: {e}", file=sys.stderr)
+                sys.exit(1)
+
     # ── 4. Create task (with Reflection) ──────────────────────────────────────
     print(f"\n🚀 Creating task…", flush=True)
     try:
@@ -1307,7 +1351,7 @@ def main():
             task_type=args.task_type,
             model_params=mp,
             prompt=args.prompt,
-            input_images=args.input_images or [],
+            input_images=resolved_inputs,
             extra_params=extra if extra else None,
             max_attempts=3  # Up to 3 automatic retries with reflection
         )
