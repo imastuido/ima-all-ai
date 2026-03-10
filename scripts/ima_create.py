@@ -376,10 +376,10 @@ def extract_model_params(node: dict) -> dict:
     rule_attributes: dict = {}
     rule_attrs = selected_rule.get("attributes", {})
     
-    # Filter out {"default": "enabled"} marker (not an actual parameter)
-    for key, value in rule_attrs.items():
-        if not (key == "default" and value == "enabled"):
-            rule_attributes[key] = value
+    # 🆕 CRITICAL FIX: For TTS tasks, keep "default": "enabled" parameter
+    # It's not just a marker - it's a required parameter for the API
+    # Simply copy all attributes from the selected rule
+    rule_attributes = rule_attrs.copy()
 
     logger.info(f"Params extracted: model={node.get('model_id')}, attribute_id={attribute_id}, "
                 f"credit={credit}, rule_attrs={len(rule_attributes)} fields")
@@ -475,12 +475,16 @@ def select_credit_rule_by_params(credit_rules: list, user_params: dict) -> dict 
     return credit_rules[0]
 
 
-def get_valid_attribute_keys(credit_rules: list) -> set:
+def get_valid_attribute_keys(credit_rules: list, task_type: str = None) -> set:
     """
     Extract all valid attribute keys from credit_rules dynamically.
     
     This avoids hardcoding parameter lists that may become outdated.
     Scans all credit_rules[].attributes and collects keys (excluding special markers).
+    
+    Args:
+        credit_rules: List of credit rules from product API
+        task_type: Optional task type for special handling (e.g., "text_to_speech")
     
     Returns: set of attribute keys that can be used for credit_rule matching
     """
@@ -489,8 +493,12 @@ def get_valid_attribute_keys(credit_rules: list) -> set:
     for rule in credit_rules:
         attrs = rule.get("attributes", {})
         for key, value in attrs.items():
-            # Skip special markers like {"default": "enabled"}
-            if not (key == "default" and value == "enabled"):
+            # Special case for TTS: keep all attributes including "default": "enabled"
+            # This fixes the issue where TTS tasks fail because the required parameter is skipped
+            if task_type == "text_to_speech":
+                valid_keys.add(key)
+            # For other task types: skip special markers like {"default": "enabled"}
+            elif not (key == "default" and value == "enabled"):
                 valid_keys.add(key)
     
     return valid_keys
@@ -525,7 +533,8 @@ def create_task(base_url: str, api_key: str,
     if extra_params and all_rules:
         # ✅ DYNAMIC: Extract valid attribute keys from credit_rules
         # This replaces the hardcoded list and stays in sync with backend
-        valid_keys = get_valid_attribute_keys(all_rules)
+        # Pass task_type to handle TTS special case (keep "default": "enabled")
+        valid_keys = get_valid_attribute_keys(all_rules, task_type)
         
         # Filter user params to only include keys that appear in credit_rules.attributes
         candidate_params = {k: v for k, v in extra_params.items() if k in valid_keys}
