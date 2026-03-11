@@ -19,6 +19,64 @@ description: >
 
 # IMA AI Creation
 
+## ⚠️ 重要：模型 ID 参考
+
+**CRITICAL:** When calling the script, you MUST use the exact **model_id** (second column), NOT the friendly model name. Do NOT infer model_id from the friendly name (e.g., ❌ `nano-banana-pro` is WRONG; ✅ `gemini-3-pro-image` is CORRECT).
+
+**Quick Reference Table:**
+
+### 图像模型 (Image Models)
+
+| 友好名称 (Friendly Name) | model_id | 说明 (Notes) |
+|-------------------------|----------|-------------|
+| Nano Banana2 | `gemini-3.1-flash-image` | ❌ NOT nano-banana-2, 预算选择 4-13 pts |
+| Nano Banana Pro | `gemini-3-pro-image` | ❌ NOT nano-banana-pro, 高质量 10-18 pts |
+| SeeDream 4.5 | `doubao-seedream-4.5` | ✅ Recommended default, 5 pts |
+| Midjourney | `midjourney` | ✅ Same as friendly name, 8-10 pts |
+
+### 视频模型 (Video Models)
+
+| 友好名称 (Friendly Name) | model_id (t2v) | model_id (i2v) | 说明 (Notes) |
+|-------------------------|---------------|----------------|-------------|
+| Wan 2.6 | `wan2.6-t2v` | `wan2.6-i2v` | ⚠️ Note -t2v/-i2v suffix |
+| Kling O1 | `kling-video-o1` | `kling-video-o1` | ⚠️ Note video- prefix |
+| Kling 2.6 | `kling-v2-6` | `kling-v2-6` | ⚠️ Note v prefix |
+| Hailuo 2.3 | `MiniMax-Hailuo-2.3` | `MiniMax-Hailuo-2.3` | ⚠️ Note MiniMax- prefix |
+| Hailuo 2.0 | `MiniMax-Hailuo-02` | `MiniMax-Hailuo-02` | ⚠️ Note 02 not 2.0 |
+| Google Veo 3.1 | `veo-3.1-generate-preview` | `veo-3.1-generate-preview` | ⚠️ Note -generate-preview suffix |
+| Sora 2 Pro | `sora-2-pro` | `sora-2-pro` | ✅ Straightforward |
+| Pixverse | `pixverse` | `pixverse` | ✅ Same as friendly name |
+
+### 音乐模型 (Music Models)
+
+| 友好名称 (Friendly Name) | model_id | 说明 (Notes) |
+|-------------------------|----------|-------------|
+| Suno (sonic v4) | `sonic` | ⚠️ Simplified to sonic |
+| DouBao BGM | `GenBGM` | ❌ NOT doubao-bgm |
+| DouBao Song | `GenSong` | ❌ NOT doubao-song |
+
+### 语音模型 (Speech/TTS Models)
+
+| 友好名称 (Friendly Name) | model_id | 说明 (Notes) |
+|-------------------------|----------|-------------|
+| seed-tts-2.0 | `seed-tts-2.0` | ✅ Same as friendly name (default) |
+
+**How to get the correct model_id:**
+1. Check this table first
+2. Use `--list-models --task-type <type>` to query available models
+3. Refer to command examples in this SKILL.md
+
+**Example:**
+```bash
+# ❌ WRONG: Inferring from friendly name
+--model-id nano-banana-pro
+
+# ✅ CORRECT: Using exact model_id from table
+--model-id gemini-3-pro-image
+```
+
+---
+
 ## ⚠️ MANDATORY PRE-CHECK: Read Knowledge Base First!
 
 **If ima-knowledge-ai is not installed:** Skip all "Read …" steps below; use only this SKILL's **📥 User Input Parsing** (media type → task_type) and the Recommended Defaults / model tables for each media type.
