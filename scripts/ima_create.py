@@ -526,18 +526,23 @@ def create_task(base_url: str, api_key: str,
     if input_images is None:
         input_images = []
 
-    # Smart credit_rule selection based on user params
+    # Smart credit_rule selection based on merged params (form defaults + user overrides)
+    # 🔧 FIX: Always try to match credit_rule based on actual parameters (not just user params)
+    # This fixes error 6010 when backend recalculates rule based on complete params
     all_rules = model_params.get("all_credit_rules", [])
     normalized_rule_params = {}  # 🆕 Store normalized params from matched rule
     
-    if extra_params and all_rules:
+    if all_rules:
+        # Merge form_config defaults + user overrides (user params take priority)
+        merged_params = {**model_params["form_params"], **(extra_params or {})}
+        
         # ✅ DYNAMIC: Extract valid attribute keys from credit_rules
         # This replaces the hardcoded list and stays in sync with backend
         # Pass task_type to handle TTS special case (keep "default": "enabled")
         valid_keys = get_valid_attribute_keys(all_rules, task_type)
         
-        # Filter user params to only include keys that appear in credit_rules.attributes
-        candidate_params = {k: v for k, v in extra_params.items() if k in valid_keys}
+        # Filter merged params to only include keys that appear in credit_rules.attributes
+        candidate_params = {k: v for k, v in merged_params.items() if k in valid_keys}
         
         # Common attribute keys (for reference, but not used for filtering):
         # Image: size, quality, n
