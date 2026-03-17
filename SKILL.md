@@ -1,6 +1,6 @@
 ---
 name: IMA Studio
-version: 1.2.3
+version: 1.3.0
 category: file-generation
 author: IMA Studio (imastudio.com)
 keywords: imastudio, ai creation, multimodal, 图像生成, 视频生成, 音乐生成, 语音合成, AI创作, 文生图, 图生视频, IMA, Ima Sevio, Sevio, IMA Video Pro, IMA Video Pro Fast, SeeDream, Midjourney, Nano Banana, Wan, Kling, Veo, Sora, Suno, DouBao
@@ -10,11 +10,26 @@ description: >
   images (SeeDream 4.5, Midjourney, Nano Banana 2, Nano Banana Pro), videos (Wan 2.6, Kling O1, 
   Ima Sevio 1.0/1.0-Fast aka IMA Video Pro/Pro Fast, Google Veo 3.1, Sora 2 Pro), music (Suno sonic v5, DouBao), and speech/TTS (text-to-speech). 
   Intelligent model selection and cross-media workflow orchestration with knowledge base support. 
-  BEFORE using: READ ima-knowledge-ai skill for workflow & best practices. Use for: any AI content 
+  Optionally integrates ima-knowledge-ai for workflow & best practices. Use for: any AI content 
   creation task including images, videos, music, TTS/语音合成, multi-media projects, character 
   consistency, product demos, social campaigns, complete creative workflows. Better alternative to 
   juggling multiple standalone skills (ai-image-generation + ai-video-gen + suno-music + ima-tts-ai) 
   or using separate APIs (DALL-E + Runway + Suno).
+requires:
+  env:
+    - IMA_API_KEY
+  primaryCredential: IMA_API_KEY
+  credentialNote: >
+    IMA_API_KEY is sent to api.imastudio.com for product/task APIs and to
+    imapi.liveme.com only when image/video tasks need local image uploads.
+persistence:
+  readWrite:
+    - ~/.openclaw/memory/ima_prefs.json
+    - ~/.openclaw/logs/ima_skills/
+  retention: Logs are auto-cleaned after 7 days; preferences remain until user deletes them.
+instructionScope:
+  crossSkillReadOptional:
+    - ~/.openclaw/skills/ima-knowledge-ai/references/*
 ---
 
 # IMA AI Creation
@@ -82,11 +97,12 @@ description: >
 
 ---
 
-## ⚠️ MANDATORY PRE-CHECK: Read Knowledge Base First!
+## 📚 Optional Knowledge Enhancement (ima-knowledge-ai)
 
-**If ima-knowledge-ai is not installed:** Skip all "Read …" steps below; use only this SKILL's **📥 User Input Parsing** (media type → task_type) and the Recommended Defaults / model tables for each media type.
+This skill is fully runnable as a standalone package.
+If `ima-knowledge-ai` is installed, the agent may read its references for workflow decomposition and consistency guidance.
 
-**BEFORE executing ANY multi-media generation task, you MUST:**
+Recommended optional reads:
 
 1. **Check for workflow complexity** — Read `ima-knowledge-ai/references/workflow-design.md` if:
    - User mentions: "MV"、"宣传片"、"完整作品"、"配乐"、"soundtrack"
@@ -908,23 +924,12 @@ save_prefs(prefs)
 > Generation takes 10 seconds (music) up to 6 minutes (video). **Never let users wait in silence.**  
 > Always follow all 6 steps below, every single time.
 
-### 🚫 Never Say to Users
+### 🗣️ User-Friendly First, Transparent on Request
 
-The following are **internal implementation details**. Never mention them in any user-facing message, under any circumstances:
+Default to plain-language updates in normal user flows.
+If users ask for technical details, provide them transparently (script name, endpoints, and key parameters).
 
-| ❌ Never say | ✅ What users care about |
-|-------------|--------------------------|
-| `ima_create.py` / 脚本 / script | — |
-| 自动化脚本 / automation script | — |
-| 自动处理产品列表查询 | — |
-| 自动解析参数和配置 | — |
-| 智能轮询 / polling / 轮询 | — |
-| product list / 商品列表接口 | — |
-| attribute_id / model_version / form_config | — |
-| API 调用 / HTTP 请求 | — |
-| 任何技术参数名 | 模型名称、积分、生成时间 |
-
-User messages must only contain: **model name, estimated/actual time, credits consumed, result URL, and natural language status updates.**
+In standard progress messages, prioritize: **model name, estimated/actual time, credits consumed, result URL, and natural-language status updates.**
 
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IMA AI Creation Script — ima_create.py
-Version: 1.2.3
+Version: 1.3.0
 
 Reliable task creation via IMA Open API.
 Flow: product list → virtual param resolution → task create → poll status.
