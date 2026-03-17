@@ -3,12 +3,12 @@ name: IMA Studio
 version: 1.2.3
 category: file-generation
 author: IMA Studio (imastudio.com)
-keywords: imastudio, ai creation, multimodal, 图像生成, 视频生成, 音乐生成, 语音合成, AI创作, 文生图, 图生视频, IMA, SeeDream, Midjourney, Nano Banana, Wan, Kling, Veo, Sora, Suno, DouBao
+keywords: imastudio, ai creation, multimodal, 图像生成, 视频生成, 音乐生成, 语音合成, AI创作, 文生图, 图生视频, IMA, Ima Sevio, Sevio, IMA Video Pro, IMA Video Pro Fast, SeeDream, Midjourney, Nano Banana, Wan, Kling, Veo, Sora, Suno, DouBao
 argument-hint: "[text prompt, image URL, or music description]"
 description: >
   Most comprehensive AI content creation platform with unified access to all leading models across 
   images (SeeDream 4.5, Midjourney, Nano Banana 2, Nano Banana Pro), videos (Wan 2.6, Kling O1, 
-  Google Veo 3.1, Sora 2 Pro), music (Suno sonic v5, DouBao), and speech/TTS (text-to-speech). 
+  Ima Sevio 1.0/1.0-Fast aka IMA Video Pro/Pro Fast, Google Veo 3.1, Sora 2 Pro), music (Suno sonic v5, DouBao), and speech/TTS (text-to-speech). 
   Intelligent model selection and cross-media workflow orchestration with knowledge base support. 
   BEFORE using: READ ima-knowledge-ai skill for workflow & best practices. Use for: any AI content 
   creation task including images, videos, music, TTS/语音合成, multi-media projects, character 
@@ -39,6 +39,8 @@ description: >
 | 友好名称 (Friendly Name) | model_id (t2v) | model_id (i2v) | 说明 (Notes) |
 |-------------------------|---------------|----------------|-------------|
 | Wan 2.6 | `wan2.6-t2v` | `wan2.6-i2v` | ⚠️ Note -t2v/-i2v suffix |
+| IMA Video Pro (Sevio 1.0) | `ima-pro` | `ima-pro` | ✅ IMA native quality model |
+| IMA Video Pro Fast (Sevio 1.0-Fast) | `ima-pro-fast` | `ima-pro-fast` | ✅ IMA native low-latency model |
 | Kling O1 | `kling-video-o1` | `kling-video-o1` | ⚠️ Note video- prefix |
 | Kling 2.6 | `kling-v2-6` | `kling-v2-6` | ⚠️ Note v prefix |
 | Hailuo 2.3 | `MiniMax-Hailuo-2.3` | `MiniMax-Hailuo-2.3` | ⚠️ Note MiniMax- prefix |
@@ -65,6 +67,9 @@ description: >
 1. Check this table first
 2. Use `--list-models --task-type <type>` to query available models
 3. Refer to command examples in this SKILL.md
+
+> Runtime truth source: `GET /open/v1/product/list` (or `--list-models`).  
+> Any table in this document is guidance; actual availability depends on current product list.
 
 **Example:**
 ```bash
@@ -167,7 +172,14 @@ If the request mixes media (e.g. "宣传片+配乐"), treat as **multi-media wor
 ### 2. Model and parameter parsing
 
 - **Image:** For model name → model_id and size/aspect_ratio parsing, follow the same rules as in **ima-image-ai** skill (User Input Parsing section).
-- **Video:** For task_type (t2v / i2v / first_last / reference), model alias → model_id, and duration/resolution/aspect_ratio, follow **ima-video-ai** skill (User Input Parsing section).
+- **Video:** For task_type (t2v / i2v / first_last / reference), model alias → model_id, and duration/resolution/aspect_ratio, follow **ima-video-ai** skill (User Input Parsing section).  
+  Sevio alias normalization in `ima-all-ai`:
+  - `Ima Sevio 1.0` → `ima-pro`
+  - `Ima Sevio 1.0-Fast` / `Ima Sevio 1.0 Fast` → `ima-pro-fast`
+  Routing rule:
+  - Normalize alias first
+  - Then resolve against runtime product list for the selected `task_type`
+  - If model is absent in current category, return available model_ids from `--list-models`
 - **Music:** Suno (`sonic`) vs DouBao BGM/Song — infer from "BGM"/"背景音乐" → BGM; "带歌词"/"人声" → Suno or Song. Use model_id `sonic`, `GenBGM`, `GenSong` per "Recommended Defaults" and "Music Generation" tables below.
 - **Speech (TTS):** Get model_id from `GET /open/v1/product/list?category=text_to_speech` or run script with `--task-type text_to_speech --list-models`. Map user intent to parameters using product `form_config`:
 
@@ -1343,6 +1355,17 @@ All error handling is **automatic and transparent** — users receive natural la
 
 ### Video Generation
 
+#### IMA Sevio Family (Dynamic Routing)
+
+| Name | model_id | Typical positioning | task_type support |
+|------|----------|---------------------|-------------------|
+| IMA Video Pro (Sevio 1.0) | `ima-pro` | Higher quality / consistency | `text_to_video`, `image_to_video`, `first_last_frame_to_video`, `reference_image_to_video` |
+| IMA Video Pro Fast (Sevio 1.0-Fast) | `ima-pro-fast` | Lower latency / faster iteration | `text_to_video`, `image_to_video`, `first_last_frame_to_video`, `reference_image_to_video` |
+
+Notes:
+- `ima-all-ai` does not hardcode Sevio availability; it resolves by runtime `product/list`.
+- If a Sevio model is temporarily absent for a category, use `--list-models` result as final source.
+
 | Category | Name | model_id | Cost Range |
 |----------|------|----------|-----------|
 | **text_to_video (14)** | Wan 2.6 🔥 | `wan2.6-t2v` | 25-120 pts |
@@ -1615,7 +1638,7 @@ Step 2: PUT {ful}  with raw image bytes + Content-Type header
 ### Step 1: Get Upload Token
 
 ```
-GET https://imapi-qa.liveme.com/api/rest/oss/getuploadtoken
+GET https://imapi.liveme.com/api/rest/oss/getuploadtoken
 ```
 
 Required query parameters (11 total — sourced directly from frontend `generateUploadInfo`):
@@ -1667,7 +1690,7 @@ After the PUT succeeds, use `fdl` (the CDN URL) as the value for `input_images` 
 import hashlib, time, uuid, requests, mimetypes
 
 # ── 🌐 IMA Upload Service Endpoint (IMA-owned, for image/video uploads) ──────
-IMA_IM_BASE = "https://imapi-qa.liveme.com"   # prod: https://imapi.liveme.com
+IMA_IM_BASE = "https://imapi.liveme.com"
 
 # ── 🔑 Hardcoded APP_KEY (Public, Shared Across All Users) ──────────────────
 # This APP_KEY is a PUBLIC identifier used by IMA Studio's image/video upload 

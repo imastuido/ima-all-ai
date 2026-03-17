@@ -20,8 +20,10 @@ Logs: ~/.openclaw/logs/ima_skills/ima_create_YYYYMMDD.log
 import argparse
 import hashlib
 import json
+import math
 import mimetypes
 import os
+import re
 import sys
 import time
 import uuid
@@ -52,6 +54,14 @@ except ImportError:
 
 DEFAULT_BASE_URL = "https://api.imastudio.com"
 PREFS_PATH       = os.path.expanduser("~/.openclaw/memory/ima_prefs.json")
+VIDEO_MAX_WAIT_SECONDS = 40 * 60
+VIDEO_RECORDS_URL = "https://www.imastudio.com/ai-creation/text-to-video"
+VIDEO_TASK_TYPES = {
+    "text_to_video",
+    "image_to_video",
+    "first_last_frame_to_video",
+    "reference_image_to_video",
+}
 
 # Upload service (IMA image/video CDN upload). See SKILL.md "Network Endpoints Used".
 IMA_IM_BASE = "https://imapi.liveme.com"
@@ -60,15 +70,41 @@ APP_KEY     = "32jdskjdk320eew"   # public shared client-id, not a secret
 
 # Poll interval (seconds) and max wait (seconds) per task type
 POLL_CONFIG = {
-    "text_to_image":             {"interval": 5,  "max_wait": 300},
-    "image_to_image":            {"interval": 5,  "max_wait": 300},
-    "text_to_video":             {"interval": 8,  "max_wait": 600},
-    "image_to_video":            {"interval": 8,  "max_wait": 600},
-    "first_last_frame_to_video": {"interval": 8,  "max_wait": 600},
-    "reference_image_to_video":  {"interval": 8,  "max_wait": 600},
-    "text_to_music":             {"interval": 5,  "max_wait": 300},
-    "text_to_speech":            {"interval": 3,  "max_wait": 120},
+    "text_to_image":             {"interval": 5,  "max_wait": 600},
+    "image_to_image":            {"interval": 5,  "max_wait": 600},
+    "text_to_video":             {"interval": 8,  "max_wait": VIDEO_MAX_WAIT_SECONDS},
+    "image_to_video":            {"interval": 8,  "max_wait": VIDEO_MAX_WAIT_SECONDS},
+    "first_last_frame_to_video": {"interval": 8,  "max_wait": VIDEO_MAX_WAIT_SECONDS},
+    "reference_image_to_video":  {"interval": 8,  "max_wait": VIDEO_MAX_WAIT_SECONDS},
+    "text_to_music":             {"interval": 5,  "max_wait": 480},
+    "text_to_speech":            {"interval": 3,  "max_wait": 300},
 }
+
+# Model alias normalization (user-facing input -> canonical model_id).
+# Keep this minimal: dynamic product list remains the source of truth.
+MODEL_ID_ALIASES = {
+    "ima sevio 1.0": "ima-pro",
+    "ima sevio 1.0-fast": "ima-pro-fast",
+    "ima sevio 1.0 fast": "ima-pro-fast",
+}
+
+
+def normalize_model_id(model_id: str | None) -> str | None:
+    """Normalize known aliases; return original model_id when no alias applies."""
+    if not model_id:
+        return None
+    normalized_key = re.sub(r"\s+", " ", model_id.strip().lower())
+    return MODEL_ID_ALIASES.get(normalized_key, model_id.strip())
+
+
+def to_user_facing_model_name(model_name: str | None, model_id: str | None) -> str:
+    """Return user-facing Sevio branding when model_id belongs to Sevio family."""
+    canonical = normalize_model_id(model_id)
+    if canonical == "ima-pro":
+        return "Ima Sevio 1.0 (IMA Video Pro)"
+    if canonical == "ima-pro-fast":
+        return "Ima Sevio 1.0-Fast (IMA Video Pro Fast)"
+    return model_name or "IMA Model"
 
 
 # ─── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -196,13 +232,15 @@ def find_model_version(product_tree: list, target_model_id: str,
       modelItem.name      → node["name"]         (= model_name in create request)
     """
     candidates = []
+    canonical_target_model_id = normalize_model_id(target_model_id) or target_model_id
 
     def walk(nodes: list):
         for node in nodes:
             if node.get("type") == "3":
                 mid = node.get("model_id", "")
+                normalized_mid = normalize_model_id(mid) or mid
                 vid = node.get("id", "")
-                if mid == target_model_id:
+                if normalized_mid == canonical_target_model_id:
                     if target_version_id is None or vid == target_version_id:
                         candidates.append(node)
             children = node.get("children") or []
@@ -211,12 +249,18 @@ def find_model_version(product_tree: list, target_model_id: str,
     walk(product_tree)
 
     if not candidates:
-        logger.error(f"Model not found: model_id={target_model_id}, version_id={target_version_id}")
+        logger.error(
+            f"Model not found: model_id={canonical_target_model_id}, "
+            f"version_id={target_version_id}"
+        )
         return None
     
     # Return last match — product list is ordered oldest→newest, last = newest
     selected = candidates[-1]
-    logger.info(f"Model found: {selected.get('name')} (model_id={target_model_id}, version_id={selected.get('id')})")
+    logger.info(
+        f"Model found: {selected.get('name')} "
+        f"(model_id={canonical_target_model_id}, version_id={selected.get('id')})"
+    )
     return selected
 
 
@@ -228,9 +272,12 @@ def list_all_models(product_tree: list) -> list[dict]:
         for node in nodes:
             if node.get("type") == "3":
                 cr = (node.get("credit_rules") or [{}])[0]
+                raw_model_id = node.get("model_id", "")
+                canonical_model_id = normalize_model_id(raw_model_id) or raw_model_id
                 result.append({
                     "name":       node.get("name", ""),
-                    "model_id":   node.get("model_id", ""),
+                    "model_id":   canonical_model_id,
+                    "raw_model_id": raw_model_id,
                     "version_id": node.get("id", ""),
                     "credit":     cr.get("points", 0),
                     "attr_id":    cr.get("attribute_id", 0),
@@ -381,13 +428,18 @@ def extract_model_params(node: dict) -> dict:
     # Simply copy all attributes from the selected rule
     rule_attributes = rule_attrs.copy()
 
-    logger.info(f"Params extracted: model={node.get('model_id')}, attribute_id={attribute_id}, "
-                f"credit={credit}, rule_attrs={len(rule_attributes)} fields")
+    raw_model_id = node.get("model_id", "")
+    canonical_model_id = normalize_model_id(raw_model_id) or raw_model_id
+    logger.info(
+        f"Params extracted: model={canonical_model_id}, raw_model={raw_model_id}, "
+        f"attribute_id={attribute_id}, credit={credit}, rule_attrs={len(rule_attributes)} fields"
+    )
 
     return {
         "attribute_id":     attribute_id,
         "credit":           credit,
-        "model_id":         node.get("model_id", ""),
+        "model_id":         canonical_model_id,
+        "model_id_raw":     raw_model_id,
         "model_name":       node.get("name", ""),
         "model_version":    node.get("id", ""),   # ← version_id from product list
         "form_params":      form_params,
@@ -638,7 +690,8 @@ def create_task(base_url: str, api_key: str,
         "src_img_url":        input_images,
         "parameters": [{
             "attribute_id":  attribute_id,
-            "model_id":      model_params["model_id"],
+            # Use raw model_id from product list when available for backend compatibility.
+            "model_id":      model_params.get("model_id_raw") or model_params["model_id"],
             "model_name":    model_params["model_name"],
             "model_version": model_params["model_version"],   # ← version_id (NOT model_id!)
             "app":           "ima",
@@ -686,6 +739,7 @@ def create_task(base_url: str, api_key: str,
 # ─── Step 4: Poll Task Status ─────────────────────────────────────────────────
 
 def poll_task(base_url: str, api_key: str, task_id: str,
+              task_type: str | None = None,
               estimated_max: int = 120,
               poll_interval: int = 5,
               max_wait: int = 600,
@@ -713,6 +767,11 @@ def poll_task(base_url: str, api_key: str, task_id: str,
         elapsed = time.time() - start
         if elapsed > max_wait:
             logger.error(f"Task timeout: task_id={task_id}, elapsed={int(elapsed)}s, max_wait={max_wait}s")
+            if task_type in VIDEO_TASK_TYPES:
+                raise TimeoutError(
+                    f"Task {task_id} timed out after {max_wait}s without explicit backend errors. "
+                    f"Please check your creation record at {VIDEO_RECORDS_URL}."
+                )
             raise TimeoutError(
                 f"Task {task_id} timed out after {max_wait}s. "
                 "Check the IMA dashboard for status."
@@ -814,7 +873,6 @@ def extract_error_info(exception: Exception) -> dict:
             }
     
     # Check for API error codes in RuntimeError message (6009, 6010, etc.)
-    import re
     code_match = re.search(r'code[=:]?\s*(\d+)', error_str, re.IGNORECASE)
     if code_match:
         code = int(code_match.group(1))
@@ -838,6 +896,291 @@ def extract_error_info(exception: Exception) -> dict:
         "message": error_str,
         "type": "unknown"
     }
+
+
+def _normalize_compare_value(value) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value).strip().upper()
+
+
+def _parse_min_pixels(text: str) -> int | None:
+    match = re.search(
+        r"(?:at\s+least\s+(\d+)\s+pixels|pixels?\s+should\s+be\s+at\s+least\s+(\d+))",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return int(match.group(1) or match.group(2))
+
+
+def _parse_size_dims(value) -> tuple[int, int] | None:
+    if not isinstance(value, str):
+        return None
+    match = re.search(r"(\d{2,5})\s*[xX×]\s*(\d{2,5})", value)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _format_rule_attributes(rule: dict, task_type: str, max_items: int = 4) -> str:
+    attrs = rule.get("attributes") or {}
+    parts: list[str] = []
+    for key, value in attrs.items():
+        if task_type != "text_to_speech" and key == "default" and value == "enabled":
+            continue
+        parts.append(f"{key}={value}")
+    if not parts:
+        return "<default rule>"
+    return ", ".join(parts[:max_items])
+
+
+def _best_rule_mismatch(credit_rules: list, merged_params: dict, task_type: str) -> dict | None:
+    if not credit_rules:
+        return None
+
+    best: dict | None = None
+    normalized_params = {
+        str(k).strip().lower(): _normalize_compare_value(v)
+        for k, v in merged_params.items()
+    }
+
+    for rule in credit_rules:
+        attrs = rule.get("attributes") or {}
+        if not attrs:
+            continue
+
+        missing: list[str] = []
+        conflicts: list[tuple[str, str, str]] = []
+        matched = 0
+
+        for key, expected in attrs.items():
+            if task_type != "text_to_speech" and key == "default" and expected == "enabled":
+                continue
+            k = str(key).strip().lower()
+            expected_norm = _normalize_compare_value(expected)
+            actual_norm = normalized_params.get(k)
+            if actual_norm is None:
+                missing.append(str(key))
+            elif actual_norm == expected_norm:
+                matched += 1
+            else:
+                actual_raw = merged_params.get(key, merged_params.get(k, ""))
+                conflicts.append((str(key), str(actual_raw), str(expected)))
+
+        score = matched * 3 - len(missing) * 2 - len(conflicts) * 3
+        candidate = {
+            "rule": rule,
+            "missing": missing,
+            "conflicts": conflicts,
+            "matched": matched,
+            "score": score,
+        }
+        if best is None or candidate["score"] > best["score"]:
+            best = candidate
+
+    return best
+
+
+def build_contextual_diagnosis(error_info: dict,
+                               task_type: str,
+                               model_params: dict,
+                               current_params: dict | None,
+                               input_images: list[str] | None,
+                               credit_rules: list | None) -> dict:
+    """
+    Diagnose failure using model context + effective params + raw error.
+    """
+    code = error_info.get("code")
+    raw_message = str(error_info.get("message") or "")
+    msg_lower = raw_message.lower()
+
+    merged_params = dict(model_params.get("form_params") or {})
+    merged_params.update(current_params or {})
+    media_inputs = input_images or []
+    model_name = model_params.get("model_name") or "unknown_model"
+    model_id = model_params.get("model_id") or "unknown_model_id"
+
+    diagnosis = {
+        "code": code,
+        "confidence": "medium",
+        "headline": "Model task failed with current configuration",
+        "reasoning": [],
+        "actions": [],
+        "model_name": model_name,
+        "model_id": model_id,
+        "task_type": task_type,
+    }
+
+    input_required = {
+        "image_to_image",
+        "image_to_video",
+        "first_last_frame_to_video",
+        "reference_image_to_video",
+    }
+    if task_type in input_required and not media_inputs:
+        diagnosis["confidence"] = "high"
+        diagnosis["headline"] = "Missing required reference media for this task type"
+        diagnosis["reasoning"].append(
+            f"{task_type} requires input media, but input_images is empty."
+        )
+        diagnosis["actions"].append("Provide at least one URL/path via --input-images.")
+        if task_type == "first_last_frame_to_video":
+            diagnosis["actions"].append("Provide at least 2 frames: first and last.")
+        return diagnosis
+
+    if task_type == "first_last_frame_to_video" and 0 < len(media_inputs) < 2:
+        diagnosis["confidence"] = "high"
+        diagnosis["headline"] = "Insufficient frames for first_last_frame_to_video"
+        diagnosis["reasoning"].append(
+            f"Received {len(media_inputs)} media item(s); this mode typically needs first+last frames."
+        )
+        diagnosis["actions"].append("Pass two frame URLs in --input-images.")
+        return diagnosis
+
+    if code == 401 or "unauthorized" in msg_lower:
+        diagnosis["confidence"] = "high"
+        diagnosis["headline"] = "API key is invalid or unauthorized"
+        diagnosis["actions"].append("Regenerate API key: https://www.imaclaw.ai/imaclaw/apikey")
+        diagnosis["actions"].append("Retry with the new key in --api-key.")
+        return diagnosis
+
+    if code == 4008 or "insufficient points" in msg_lower:
+        diagnosis["confidence"] = "high"
+        diagnosis["headline"] = "Account points are not enough for this model request"
+        diagnosis["reasoning"].append(
+            f"Model {model_name} ({model_id}) charges by attribute/profile."
+        )
+        diagnosis["actions"].append("Top up credits: https://www.imaclaw.ai/imaclaw/subscription")
+        diagnosis["actions"].append("Or switch to a lower-cost model/parameter profile.")
+        return diagnosis
+
+    min_pixels = _parse_min_pixels(raw_message)
+    requested_dims = _parse_size_dims(str(merged_params.get("size") or ""))
+    fallback_dims = _parse_size_dims(raw_message)
+    dims = requested_dims or fallback_dims
+    if min_pixels is not None and dims is not None:
+        requested_pixels = dims[0] * dims[1]
+        if requested_pixels < min_pixels:
+            diagnosis["confidence"] = "high"
+            diagnosis["headline"] = "Output size is below this model's minimum pixel requirement"
+            diagnosis["reasoning"].append(
+                f"Requested size {dims[0]}x{dims[1]} ({requested_pixels} px) is below required {min_pixels} px."
+            )
+            target = int(math.ceil(math.sqrt(min_pixels)))
+            diagnosis["actions"].append(f"Increase --size to at least around {target}x{target}.")
+            diagnosis["actions"].append("Then retry with the same model.")
+            return diagnosis
+
+    credit_rules = credit_rules or []
+    rule_mismatch = _best_rule_mismatch(credit_rules, merged_params, task_type)
+    if (
+        code in (6009, 6010)
+        or "invalid product attribute" in msg_lower
+        or "no matching" in msg_lower
+        or "attribute" in msg_lower
+    ):
+        diagnosis["headline"] = "Current parameter combination does not fit this model rule set"
+        diagnosis["confidence"] = "high" if code in (6009, 6010) else "medium"
+        diagnosis["reasoning"].append(
+            f"Model {model_name} uses attribute-based rules; current overrides conflict with matched rule."
+        )
+        if rule_mismatch:
+            if rule_mismatch["missing"]:
+                diagnosis["reasoning"].append(
+                    "Missing parameters for best-matching rule: "
+                    + ", ".join(rule_mismatch["missing"][:4])
+                )
+            if rule_mismatch["conflicts"]:
+                compact = ", ".join(
+                    f"{k}={got} (expected {expected})"
+                    for k, got, expected in rule_mismatch["conflicts"][:3]
+                )
+                diagnosis["reasoning"].append(f"Conflicting values: {compact}")
+            diagnosis["actions"].append(
+                "Use a rule-compatible profile: "
+                + _format_rule_attributes(rule_mismatch["rule"], task_type)
+            )
+        diagnosis["actions"].append("Remove custom --extra-params and retry with defaults.")
+        return diagnosis
+
+    if code == "timeout" or "timed out" in msg_lower:
+        diagnosis["confidence"] = "medium"
+        diagnosis["headline"] = "Task exceeded polling timeout for current model settings"
+        max_wait = (POLL_CONFIG.get(task_type) or {}).get("max_wait")
+        if max_wait:
+            diagnosis["reasoning"].append(f"Polling waited {max_wait}s without a ready result.")
+        diagnosis["actions"].append("Retry with lower complexity (size/resolution/duration).")
+        diagnosis["actions"].append("Use --list-models and choose a faster model variant.")
+        if task_type in VIDEO_TASK_TYPES:
+            diagnosis["actions"].append(f"Check your creation record: {VIDEO_RECORDS_URL}")
+        else:
+            diagnosis["actions"].append("Check task status in dashboard: https://imagent.bot")
+        return diagnosis
+
+    if code == 500 or "internal server error" in msg_lower:
+        diagnosis["confidence"] = "medium"
+        diagnosis["headline"] = "Backend rejected current parameter complexity"
+        for key in ("size", "resolution", "duration", "quality"):
+            if key in merged_params:
+                fallback = get_param_degradation_strategy(key, str(merged_params[key]))
+                if fallback:
+                    diagnosis["actions"].append(
+                        f"Try {key}={fallback[0]} (current {merged_params[key]})."
+                    )
+                    break
+        diagnosis["actions"].append("Retry after simplifying parameters.")
+        return diagnosis
+
+    diagnosis["reasoning"].append(
+        f"Model context: {to_user_facing_model_name(model_name, model_id)}, "
+        f"task={task_type}, media_count={len(media_inputs)}."
+    )
+    if merged_params:
+        focus_keys = ["size", "resolution", "duration", "quality", "mode"]
+        hints = [f"{k}={merged_params[k]}" for k in focus_keys if k in merged_params]
+        if hints:
+            diagnosis["reasoning"].append("Active key parameters: " + ", ".join(hints))
+    diagnosis["actions"].append("Retry with defaults (remove --extra-params).")
+    diagnosis["actions"].append("Use --list-models to verify model and supported settings.")
+    return diagnosis
+
+
+def format_user_failure_message(diagnosis: dict,
+                                attempts_used: int,
+                                max_attempts: int) -> str:
+    """Render a user-facing failure summary without exposing raw backend errors."""
+    display_model = to_user_facing_model_name(
+        diagnosis.get("model_name"),
+        diagnosis.get("model_id"),
+    )
+    lines = [
+        f"Task failed after {attempts_used}/{max_attempts} attempt(s).",
+        (
+            f"Model: {display_model} | "
+            f"Task: {diagnosis.get('task_type')}"
+        ),
+        f"Likely cause ({diagnosis.get('confidence', 'medium')} confidence): {diagnosis.get('headline')}",
+    ]
+
+    reasoning = diagnosis.get("reasoning") or []
+    if reasoning:
+        lines.append("Why this diagnosis:")
+        for item in reasoning[:3]:
+            lines.append(f"- {item}")
+
+    actions = diagnosis.get("actions") or []
+    if actions:
+        lines.append("What to do next:")
+        for index, action in enumerate(actions[:4], 1):
+            lines.append(f"{index}. {action}")
+
+    code = diagnosis.get("code")
+    if code not in (None, "", "unknown"):
+        lines.append(f"Reference code: {code}")
+    lines.append("Technical details were recorded in local logs.")
+    return "\n".join(lines)
 
 
 def get_param_degradation_strategy(param_key: str, current_value: str) -> list:
@@ -1013,8 +1356,8 @@ def reflect_on_failure(error_info: dict,
         return {
             "action": "give_up",
             "suggestion": f"Task generation timed out for model '{model_params['model_name']}'. "
-                         f"The task may still be processing in the background. "
-                         f"Check the IMA Studio dashboard (https://imagent.bot) for your task status. "
+                         f"The task may still be processing in the background without explicit backend errors. "
+                         f"Please check your creation record at {VIDEO_RECORDS_URL}. "
                          f"If this model is consistently slow, consider using a faster model."
         }
     
@@ -1112,39 +1455,51 @@ def create_task_with_reflection(base_url: str, api_key: str,
                     continue
                 else:
                     logger.error(f"💡 Reflection suggests giving up: {reflection.get('suggestion')}")
+                    diagnosis = build_contextual_diagnosis(
+                        error_info=error_info,
+                        task_type=task_type,
+                        model_params=model_params,
+                        current_params=current_params,
+                        input_images=input_images,
+                        credit_rules=credit_rules,
+                    )
+                    logger.error(
+                        "Contextual diagnosis (early give-up): %s",
+                        json.dumps(diagnosis, ensure_ascii=False),
+                    )
                     raise RuntimeError(
-                        f"Task creation failed after {attempt} attempt(s).\n\n"
-                        f"💡 Suggestion: {reflection.get('suggestion')}\n\n"
-                        f"Attempt log:\n" + json.dumps(attempt_log, indent=2, ensure_ascii=False)
+                        format_user_failure_message(
+                            diagnosis=diagnosis,
+                            attempts_used=attempt,
+                            max_attempts=max_attempts,
+                        )
                     ) from e
             else:
                 logger.error(f"❌ All {max_attempts} attempts failed")
-                
+
                 last_error = attempt_log[-1]["error"]
-                suggestion = f"All {max_attempts} attempts failed. Last error: {last_error['message']}"
-                
-                if last_error['code'] in [401, 500, 4008, 6009, 6010]:
-                    suggestion += f"\n\n💡 This may indicate:\n"
-                    if last_error['code'] == 401:
-                        suggestion += "  - API key is invalid or unauthorized\n"
-                        suggestion += "  - 🔗 Generate API Key: https://www.imaclaw.ai/imaclaw/apikey\n"
-                    elif last_error['code'] == 4008:
-                        suggestion += "  - Insufficient points to create this task\n"
-                        suggestion += "  - 🔗 Buy Credits: https://www.imaclaw.ai/imaclaw/subscription\n"
-                    elif last_error['code'] == 500:
-                        suggestion += "  - Backend server issue or unsupported parameter\n"
-                        suggestion += "  - Try a different model or simpler parameters\n"
-                    elif last_error['code'] == 6009:
-                        suggestion += "  - No matching pricing rule for your parameters\n"
-                        suggestion += "  - Try using default parameters or check available options\n"
-                    elif last_error['code'] == 6010:
-                        suggestion += "  - Parameter/pricing rule mismatch\n"
-                        suggestion += "  - Refresh the model list or use recommended parameters\n"
-                
+                diagnosis = build_contextual_diagnosis(
+                    error_info=last_error,
+                    task_type=task_type,
+                    model_params=model_params,
+                    current_params=current_params,
+                    input_images=input_images,
+                    credit_rules=credit_rules,
+                )
+                logger.error(
+                    "Contextual diagnosis (max attempts): %s",
+                    json.dumps(diagnosis, ensure_ascii=False),
+                )
+                logger.error(
+                    "Attempt log (debug only): %s",
+                    json.dumps(attempt_log, ensure_ascii=False),
+                )
                 raise RuntimeError(
-                    f"Task creation failed after {max_attempts} attempts.\n\n"
-                    f"{suggestion}\n\n"
-                    f"Full attempt log:\n" + json.dumps(attempt_log, indent=2, ensure_ascii=False)
+                    format_user_failure_message(
+                        diagnosis=diagnosis,
+                        attempts_used=max_attempts,
+                        max_attempts=max_attempts,
+                    )
                 ) from e
 
 
@@ -1162,8 +1517,9 @@ def save_pref(user_id: str, task_type: str, model_params: dict):
     os.makedirs(os.path.dirname(PREFS_PATH), exist_ok=True)
     prefs = load_prefs()
     key   = f"user_{user_id}"
+    canonical_model_id = normalize_model_id(model_params.get("model_id")) or model_params.get("model_id")
     prefs.setdefault(key, {})[task_type] = {
-        "model_id":    model_params["model_id"],
+        "model_id":    canonical_model_id,
         "model_name":  model_params["model_name"],
         "credit":      model_params["credit"],
         "last_used":   datetime.now(timezone.utc).isoformat(),
@@ -1175,7 +1531,9 @@ def save_pref(user_id: str, task_type: str, model_params: dict):
 def get_preferred_model_id(user_id: str, task_type: str) -> str | None:
     prefs = load_prefs()
     entry = (prefs.get(f"user_{user_id}") or {}).get(task_type)
-    return entry.get("model_id") if entry else None
+    if not entry:
+        return None
+    return normalize_model_id(entry.get("model_id"))
 
 
 # ─── CLI Entry Point ──────────────────────────────────────────────────────────
@@ -1234,8 +1592,9 @@ Examples:
                    help="Specific version ID — overrides auto-select of latest")
     p.add_argument("--prompt",
                    help="Generation prompt (required unless --list-models)")
-    p.add_argument("--input-images", nargs="*", default=[],
+    p.add_argument("--input-images", nargs="*", action="append", default=[],
                    help="Input image URLs or local file paths (for image_to_image, image_to_video, etc.). "
+                        "Can be repeated multiple times; values are merged. "
                         "Local files are automatically uploaded using the API key.")
     p.add_argument("--size",
                    help="Override size parameter (e.g. 4k, 2k, 1024x1024)")
@@ -1255,10 +1614,23 @@ Examples:
     return p
 
 
+def flatten_input_images_args(raw_groups) -> list[str]:
+    """Merge repeated --input-images groups into one flat list."""
+    flattened: list[str] = []
+    for group in raw_groups or []:
+        if isinstance(group, list):
+            flattened.extend([str(v) for v in group if str(v).strip()])
+        elif group is not None and str(group).strip():
+            flattened.append(str(group))
+    return flattened
+
+
 def main():
     args   = build_parser().parse_args()
     base   = args.base_url
     apikey = args.api_key
+    if args.model_id:
+        args.model_id = normalize_model_id(args.model_id) or args.model_id
 
     start_time = time.time()
     masked_key = f"{apikey[:10]}..." if len(apikey) > 10 else "***"
@@ -1340,7 +1712,7 @@ def main():
             sys.exit(1)
 
     # ── 3b. Resolve local image paths → CDN URLs ─────────────────────────────
-    raw_inputs = args.input_images or []
+    raw_inputs = flatten_input_images_args(args.input_images)
     resolved_inputs: list[str] = []
     for src in raw_inputs:
         if src.startswith("https://") or src.startswith("http://"):
@@ -1384,12 +1756,34 @@ def main():
 
     try:
         media = poll_task(base, apikey, task_id,
+                          task_type=args.task_type,
                           estimated_max=est_max,
                           poll_interval=cfg["interval"],
                           max_wait=cfg["max_wait"])
     except (TimeoutError, RuntimeError) as e:
         logger.error(f"Task polling failed: {str(e)}")
-        print(f"\n❌ {e}", file=sys.stderr)
+        poll_error = extract_error_info(e)
+        diagnosis = build_contextual_diagnosis(
+            error_info=poll_error,
+            task_type=args.task_type,
+            model_params=mp,
+            current_params=extra if extra else {},
+            input_images=resolved_inputs,
+            credit_rules=mp.get("all_credit_rules", []),
+        )
+        logger.error(
+            "Polling contextual diagnosis: %s",
+            json.dumps(diagnosis, ensure_ascii=False),
+        )
+        print(
+            "\n❌ "
+            + format_user_failure_message(
+                diagnosis=diagnosis,
+                attempts_used=1,
+                max_attempts=1,
+            ),
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # ── 6. Save preference ────────────────────────────────────────────────────
