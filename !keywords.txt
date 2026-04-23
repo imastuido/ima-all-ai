@@ -1,0 +1,31 @@
+All-in-one AI creator generates images, videos, music, and speech from text prompts and image inputs. AI content creation tool for multimodal media production. Unified AI creator replaces separate image, video, music, and TTS skills with one entrypoint.
+
+AI image generator creates posters, thumbnails, product photos, logos, illustrations, and social media graphics from text prompts. Image generator with text-to-image and image-to-image modes. GPT Image 2, SeeDream 4.5, Midjourney, Nano Banana 2, Nano Banana Pro image generation models.
+
+AI video generator creates short videos, promo videos, product demos, explainer videos, and social media clips. Video generator with text-to-video, image-to-video, first-last-frame, and reference-image modes. Wan 2.6, Kling O1/2.6, Google Veo 3.1, Sora 2 Pro, Pixverse V5.5, Hailuo 2.0/2.3, SeeDance 1.5 Pro, Vidu Q2 video generation models.
+
+AI music generator creates background music, songs with vocals, soundtracks, jingles, and ambient audio. Music generator with Suno and DouBao GenBGM/GenSong models. Text-to-music for video editing, podcasts, games, and marketing content.
+
+AI text-to-speech generator converts text, scripts, and captions into natural voiceovers. TTS generator with seed-tts-2.0 for video narration, audiobooks, podcasts, e-learning, and commercial voiceover.
+
+Multimodal AI creation combines image, video, music, and speech generation in one unified workflow. Character consistency across image and video. Multi-shot production with reference images.
+
+Generate AI content with GPT Image 2, SeeDream, Midjourney, Nano Banana, Wan, Kling, Veo, Sora, Pixverse, Hailuo, SeeDance, Vidu, Suno, DouBao, and seed-tts models. One-stop AI creation platform alternative to DALL-E, Stable Diffusion, Runway, Pika Labs, Luma, ElevenLabs.
+
+---
+
+AI绘画 AI画图 文生图 图生图 AI图像生成 海报生成 缩略图 商品图 产品摄影 Logo设计 插画 社媒配图
+AI视频 文生视频 图生视频 短视频生成 宣传片 产品演示 视频创作 角色动画 首尾帧 参考图视频
+AI音乐 文生音乐 背景音乐 BGM 配乐 歌曲生成 AI作曲 纯音乐 广告配乐 播客片头
+AI配音 语音合成 文字转语音 TTS 朗读 播报 有声书 视频配音 课件配音
+
+GPT Image 2 OpenAI Image 可梦 SeeDream Midjourney MJ 香蕉 Nano Banana Wan Kling 可灵 Veo Sora Pixverse Hailuo 海螺
+SeeDance Vidu Suno 豆包 DouBao GenBGM GenSong seed-tts IMA Studio
+
+一站式AI创作 多模态 图文音视频 全能AI工具 统一创作入口 替代多个技能
+
+---
+
+用一个技能完成图片、视频、音乐和语音的全部AI创作。集成GPT Image 2、SeeDream、Midjourney、Nano Banana图像模型，Wan、Kling、Veo、Sora等视频模型，Suno和豆包音乐模型，以及seed-tts语音模型。支持文生图、图生图、文生视频、图生视频、首尾帧视频、参考图视频、文生音乐和文字转语音。一站式替代分散的图片、视频、音乐和TTS技能。需IMA API密钥与积分。
+
+DALL-E Stable Diffusion Runway Pika Labs Luma ElevenLabs 竞品替代 一站式创作 多模型切换
